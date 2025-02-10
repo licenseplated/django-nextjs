@@ -3,6 +3,12 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    volumes:
+      - static_volume:/app/staticfiles
+      # Development volume for live code updates
+      - ./backend:/app
+      # Exclude the virtual environment directory
+      - /app/venv
 
   frontend:
     build: ./frontend
@@ -10,3 +16,12 @@ services:
       - "80:80"
     depends_on:
       - backend
+    volumes:
+      # Development volume for live code updates
+      - ./frontend:/app
+      # Exclude node_modules and .next
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  static_volume:

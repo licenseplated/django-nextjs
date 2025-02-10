@@ -117,6 +117,7 @@ setup(
     install_requires=[
         "django>=4.0.0",
         "gunicorn>=20.1.0",
+        "whitenoise>=6.0.0",
     ],
 )
 ```
@@ -130,8 +131,11 @@ COPY . /app/
 
 RUN pip install -e .
 
+# Collect static files
+RUN python manage.py collectstatic --noinput
+
 EXPOSE 8000
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "backend.wsgi:application"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "backend.wsgi:application"]
 ```
 
 ### 4.2 Frontend Setup
@@ -210,6 +214,12 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    volumes:
+      - static_volume:/app/staticfiles
+      # Development volume for live code updates
+      - ./backend:/app
+      # Exclude the virtual environment directory
+      - /app/venv
 
   frontend:
     build: ./frontend
@@ -217,6 +227,15 @@ services:
       - "80:80"
     depends_on:
       - backend
+    volumes:
+      # Development volume for live code updates
+      - ./frontend:/app
+      # Exclude node_modules and .next
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  static_volume:
 ```
 
 ### 4.4 Build and Run
@@ -229,3 +248,79 @@ docker-compose up --build
 Once running, you can access:
 - Frontend at [http://localhost](http://localhost)
 - Backend at [http://localhost:8000](http://localhost:8000)
+
+## Step 5: Configure Django Admin Interface
+
+### 5.1 Create a Superuser
+
+First, we need to create a superuser account that can access the Django admin interface. Stop your Docker containers if they're running (`Ctrl+C`), then:
+
+```bash
+cd backend
+source venv/bin/activate  # If not already activated
+python manage.py createsuperuser
+```
+
+Follow the prompts to create your superuser account:
+- Enter your desired username
+- Enter your email address (optional)
+- Create and confirm a strong password
+
+### 5.2 Configure Admin Interface
+
+Update `backend/backend/settings.py` to ensure the admin interface and static files are properly configured:
+
+```python
+import os  # Add this at the top of the file
+
+INSTALLED_APPS = [
+    'django.contrib.admin',  # Make sure this is present
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+]
+
+# Make sure these middleware are present
+MIDDLEWARE = [
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    # ... other middleware ...
+]
+
+# Static files configuration
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+```
+
+### 5.3 Access Admin Interface
+
+1. Start your Docker containers:
+   ```bash
+   docker-compose up --build
+   ```
+
+2. Navigate to [http://localhost:8000/admin](http://localhost:8000/admin)
+3. Log in with your superuser credentials
+
+### 5.4 Create Regular User Accounts
+
+To create regular user accounts through the admin interface:
+
+1. Click on "Users" under the "Authentication and Authorization" section
+2. Click the "Add User" button in the top right corner
+3. Fill in the required information:
+   - Username (required)
+   - Password (will be set twice)
+4. Click "Save" to create the basic user
+5. On the next screen, you can optionally add:
+   - Personal info (first name, last name, email)
+   - Permission settings
+   - Group memberships
+6. Click "Save" again to update the user's details
+
+You can now use these accounts to test your application's authentication features.
