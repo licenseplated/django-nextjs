@@ -324,3 +324,104 @@ To create regular user accounts through the admin interface:
 6. Click "Save" again to update the user's details
 
 You can now use these accounts to test your application's authentication features.
+
+## Step 6: Add JWT Authentication
+
+We'll use `djangorestframework` and `djangorestframework-simplejwt` to handle JWT authentication.
+
+### 6.1 Update Dependencies
+
+First, update `backend/setup.py` to include the new dependencies:
+```python
+from setuptools import setup, find_packages
+
+setup(
+    name="backend",
+    version="1.0.0",
+    packages=find_packages(),
+    install_requires=[
+        "django>=4.0.0",
+        "gunicorn>=20.1.0",
+        "whitenoise>=6.0.0",
+        "djangorestframework>=3.14.0",
+        "djangorestframework-simplejwt>=5.3.0",
+    ],
+)
+```
+
+### 6.2 Update Django Settings
+
+Update `backend/backend/settings.py` to include REST framework and JWT settings:
+```python
+INSTALLED_APPS = [
+    # ... existing apps ...
+    'rest_framework',
+    'rest_framework_simplejwt',
+]
+
+# Add REST Framework settings
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+# Add JWT settings
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+}
+```
+
+### 6.3 Add URL Patterns
+
+Update `backend/backend/urls.py`:
+```python
+from django.contrib import admin
+from django.urls import path
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+]
+```
+
+### 6.4 Test the JWT Endpoints
+
+1. Rebuild the containers to include the new dependencies:
+   ```bash
+   docker-compose down && docker-compose up --build
+   ```
+
+2. Get a token pair by sending a POST request to `/api/token/`:
+   ```bash
+   curl -X POST http://localhost:8000/api/token/ \
+       -H "Content-Type: application/json" \
+       -d '{"username": "your_username", "password": "your_password"}'
+   ```
+
+3. You should receive a response like:
+   ```json
+   {
+       "access": "your.access.token",
+       "refresh": "your.refresh.token"
+   }
+   ```
+
+4. To get a new access token using the refresh token:
+   ```bash
+   curl -X POST http://localhost:8000/api/token/refresh/ \
+       -H "Content-Type: application/json" \
+       -d '{"refresh": "your.refresh.token"}'
+   ```
+
+The access token can now be used in subsequent requests by including it in the Authorization header:
+```bash
+curl -H "Authorization: Bearer your.access.token" http://localhost:8000/your-protected-endpoint/
+```
