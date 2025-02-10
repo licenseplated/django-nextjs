@@ -2,6 +2,27 @@
 
 Welcome to the Django + Next.js demo project! This project demonstrates how to build a full-stack web application using a Django backend and a Next.js frontend. Both components will be containerized with Docker to ensure a consistent development environment and seamless deployment. Each step of the process will be documented in this README, complete with explanations and instructions.
 
+## Table of Contents
+
+1. [Set Up the Directory Structure](#step-1-set-up-the-directory-structure)
+2. [Initialize the Django Backend](#step-2-initialize-the-django-backend)
+3. [Initialize the Next.js Frontend](#step-3-initialize-the-nextjs-frontend)
+4. [Containerization Setup](#step-4-containerization-setup)
+   - [Backend Setup](#41-backend-setup)
+   - [Frontend Setup](#42-frontend-setup)
+   - [Docker Compose Setup](#43-docker-compose-setup)
+   - [Build and Run](#44-build-and-run)
+5. [Configure Django Admin Interface](#step-5-configure-django-admin-interface)
+   - [Create a Superuser](#51-create-a-superuser)
+   - [Configure Admin Interface](#52-configure-admin-interface)
+   - [Access Admin Interface](#53-access-admin-interface)
+   - [Create Regular User Accounts](#54-create-regular-user-accounts)
+6. [Add JWT Authentication](#step-6-add-jwt-authentication)
+   - [Update Dependencies](#61-update-dependencies)
+   - [Update Django Settings](#62-update-django-settings)
+   - [Add URL Patterns](#63-add-url-patterns)
+   - [Test the JWT Endpoints](#64-test-the-jwt-endpoints)
+
 Let's get started!
 
 ## Step 1: Set Up the Directory Structure
@@ -186,6 +207,32 @@ server {
     listen 80;
     server_name localhost;
     
+    # Proxy /api requests to Django backend
+    location /api/ {
+        proxy_pass http://backend:8000/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /admin requests to Django backend
+    location /admin/ {
+        proxy_pass http://backend:8000/admin/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /static/ {
+        proxy_pass http://backend:8000/static/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         root /usr/share/nginx/html;
         try_files $uri $uri.html $uri/index.html /app/index.html /index.html;
@@ -401,7 +448,7 @@ urlpatterns = [
 
 2. Get a token pair by sending a POST request to `/api/token/`:
    ```bash
-   curl -X POST http://localhost:8000/api/token/ \
+   curl -X POST http://localhost/api/token/ \
        -H "Content-Type: application/json" \
        -d '{"username": "your_username", "password": "your_password"}'
    ```
@@ -416,12 +463,12 @@ urlpatterns = [
 
 4. To get a new access token using the refresh token:
    ```bash
-   curl -X POST http://localhost:8000/api/token/refresh/ \
+   curl -X POST http://localhost/api/token/refresh/ \
        -H "Content-Type: application/json" \
        -d '{"refresh": "your.refresh.token"}'
    ```
 
 The access token can now be used in subsequent requests by including it in the Authorization header:
 ```bash
-curl -H "Authorization: Bearer your.access.token" http://localhost:8000/your-protected-endpoint/
+curl -H "Authorization: Bearer your.access.token" http://localhost/api/your-protected-endpoint/
 ```
