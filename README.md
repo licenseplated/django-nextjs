@@ -51,7 +51,7 @@ To ensure that your Django backend is working properly, follow these steps:
    python manage.py runserver
    ```
 
-3. **Test in Browser:** Open your browser and navigate to `http://127.0.0.1:8000`. You should see the default Django welcome page, confirming that your backend is set up correctly.
+3. **Test in Browser:** Open your browser and navigate to [http://localhost:8000](http://localhost:8000). You should see the default Django welcome page, confirming that your backend is set up correctly.
 
 4. Press `Ctrl+C` to stop the server.
 
@@ -91,7 +91,141 @@ Once the Next.js application is created, follow these steps to verify that your 
    npm run dev
    ```
 
-3. **Test in Browser:** Open your browser and navigate to `http://localhost:3000`. You should see the default Next.js homepage, confirming that your frontend application is set up correctly. 
+3. **Test in Browser:** Open your browser and navigate to [http://localhost:3000](http://localhost:3000). You should see the default Next.js homepage, confirming that your frontend application is set up correctly. 
 
 4. Press `Ctrl+C` to stop the server.
 
+## Step 4: Containerization Setup
+
+### 4.1 Backend Setup
+
+First, create a `setup.py` file in the backend directory to manage Python dependencies:
+
+```bash
+cd backend
+touch setup.py
+```
+
+Add the following content to `setup.py`:
+```python
+from setuptools import setup, find_packages
+
+setup(
+    name="backend",
+    version="1.0.0",
+    packages=find_packages(),
+    install_requires=[
+        "django>=4.0.0",
+        "gunicorn>=20.1.0",
+    ],
+)
+```
+
+Create a `Dockerfile` in the backend directory:
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY . /app/
+
+RUN pip install -e .
+
+EXPOSE 8000
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "backend.wsgi:application"]
+```
+
+### 4.2 Frontend Setup
+
+First, update `next.config.ts` to enable standalone output:
+```typescript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: 'standalone',
+  experimental: {
+    outputFileTracingRoot: undefined,
+  }
+}
+
+module.exports = nextConfig
+```
+
+Create a `Dockerfile` in the frontend directory:
+```dockerfile
+# Build stage
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+# Build the app
+RUN npm run build
+
+# Production stage
+FROM nginx:alpine
+# Copy the static build output
+COPY --from=builder /app/.next/static /usr/share/nginx/html/_next/static
+COPY --from=builder /app/public /usr/share/nginx/html
+COPY --from=builder /app/.next/server/app /usr/share/nginx/html
+COPY --from=builder /app/.next/server/pages /usr/share/nginx/html
+
+# Configure nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+Create a `nginx.conf` file in the frontend directory:
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+    
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri.html $uri/index.html /app/index.html /index.html;
+    }
+
+    location /_next/static {
+        alias /usr/share/nginx/html/_next/static;
+        expires 365d;
+        access_log off;
+    }
+
+    location /public {
+        alias /usr/share/nginx/html/public;
+        expires 365d;
+        access_log off;
+    }
+}
+```
+
+### 4.3 Docker Compose Setup
+
+Create a `docker-compose.yml` file in the root directory:
+```yaml
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+```
+
+### 4.4 Build and Run
+
+To build and start both services:
+```bash
+docker-compose up --build
+```
+
+Once running, you can access:
+- Frontend at [http://localhost](http://localhost)
+- Backend at [http://localhost:8000](http://localhost:8000)
