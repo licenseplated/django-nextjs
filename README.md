@@ -12,16 +12,20 @@ Welcome to the Django + Next.js demo project! This project demonstrates how to b
    - [Frontend Setup](#42-frontend-setup)
    - [Docker Compose Setup](#43-docker-compose-setup)
    - [Build and Run](#44-build-and-run)
-5. [Configure Django Admin Interface](#step-5-configure-django-admin-interface)
+5. [Backend: Configure Django Admin Interface](#step-5-backend-configure-django-admin-interface)
    - [Create a Superuser](#51-create-a-superuser)
    - [Configure Admin Interface](#52-configure-admin-interface)
    - [Access Admin Interface](#53-access-admin-interface)
    - [Create Regular User Accounts](#54-create-regular-user-accounts)
-6. [Add JWT Authentication](#step-6-add-jwt-authentication)
+6. [Backend: Add JWT Authentication](#step-6-backend-add-jwt-authentication)
    - [Update Dependencies](#61-update-dependencies)
    - [Update Django Settings](#62-update-django-settings)
    - [Add URL Patterns](#63-add-url-patterns)
    - [Testing the API Endpoints](#64-testing-the-api-endpoints)
+7. [Frontend: Configure Landing Page](#step-7-frontend-configure-landing-page)
+   - [Create Navigation Components](#71-create-navigation-components)
+   - [Add Status Indicator](#72-add-status-indicator)
+   - [Update Landing Page](#73-update-landing-page)
 
 Let's get started!
 
@@ -166,9 +170,6 @@ First, update `next.config.ts` to enable standalone output:
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  experimental: {
-    outputFileTracingRoot: undefined,
-  }
 }
 
 module.exports = nextConfig
@@ -296,7 +297,7 @@ Once running, you can access:
 - Frontend at [http://localhost](http://localhost)
 - Backend at [http://localhost:8000](http://localhost:8000)
 
-## Step 5: Configure Django Admin Interface
+## Step 5: Backend: Configure Django Admin Interface
 
 ### 5.1 Create a Superuser
 
@@ -372,7 +373,7 @@ To create regular user accounts through the admin interface:
 
 You can now use these accounts to test your application's authentication features.
 
-## Step 6: Add JWT Authentication
+## Step 6: Backend: Add JWT Authentication
 
 We'll use `djangorestframework` and `djangorestframework-simplejwt` to handle JWT authentication.
 
@@ -541,4 +542,132 @@ urlpatterns = [
    # Test the new access token
    curl -H "Authorization: Bearer $NEW_ACCESS_TOKEN" http://localhost/api/me/
    ```
+
+## Step 7: Frontend: Configure Landing Page
+
+### 7.1 Create Navigation Components
+
+First, create a new components directory and navigation component:
+
+```bash
+mkdir -p frontend/src/components
+```
+
+Create `frontend/src/components/Navigation.tsx`:
+```typescript
+"use client"
+
+import { FC } from 'react'
+import Link from 'next/link'
+import StatusIndicator from './StatusIndicator'
+
+const Navigation: FC = () => {
+  return (
+    <nav className="flex items-center justify-between p-4 bg-white shadow-md">
+      <div className="flex items-center space-x-4">
+        <Link href="/" className="text-gray-800 hover:text-gray-600">
+          Home
+        </Link>
+      </div>
+      
+      <StatusIndicator />
+      
+      <div>
+        <button className="px-4 py-2 text-white bg-blue-500 rounded hover:bg-blue-600">
+          Login
+        </button>
+      </div>
+    </nav>
+  )
+}
+
+export default Navigation
+```
+
+### 7.2 Add Status Indicator
+
+Create `frontend/src/components/StatusIndicator.tsx`:
+```typescript
+"use client"
+
+import { FC, useEffect, useState } from 'react'
+
+const StatusIndicator: FC = () => {
+  const [status, setStatus] = useState<'ok' | 'error'>('error')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch('/api/status')
+        const data = await response.json()
+        setStatus(data.status === 'ok' ? 'ok' : 'error')
+      } catch (err) {
+        console.error('Failed to fetch status:', err)
+        setStatus('error')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    checkStatus()
+    // Check status every 30 seconds
+    const interval = setInterval(checkStatus, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  if (loading) {
+    return <div className="w-3 h-3 bg-gray-400 rounded-full" />
+  }
+
+  return (
+    <div className="flex items-center space-x-2">
+      <div
+        className={`w-3 h-3 rounded-full ${
+          status === 'ok' ? 'bg-green-500' : 'bg-red-500'
+        }`}
+      />
+      <span className="text-sm text-gray-600">
+        {status === 'ok' ? 'System Online' : 'System Offline'}
+      </span>
+    </div>
+  )
+}
+
+export default StatusIndicator
+```
+
+### 7.3 Update Landing Page
+
+Update `frontend/src/app/page.tsx`:
+```typescript
+"use client"
+
+import Navigation from '@/components/Navigation'
+
+export default function Home() {
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <Navigation />
+      
+      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+        <h1 className="text-5xl font-bold text-gray-800 text-center">
+          Django/NextJS Demo App
+        </h1>
+      </div>
+    </main>
+  )
+}
+```
+
+These changes will:
+- Create a clean navigation bar with Home link, status indicator, and login button
+- Add a status indicator that polls the backend every 30 seconds
+- Center the app title on the page
+- Use Tailwind CSS for styling (which we selected during Next.js setup)
+
+After making these changes, rebuild your frontend container:
+```bash
+docker-compose up --build frontend
+```
 
