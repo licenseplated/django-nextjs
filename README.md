@@ -21,7 +21,7 @@ Welcome to the Django + Next.js demo project! This project demonstrates how to b
    - [Update Dependencies](#61-update-dependencies)
    - [Update Django Settings](#62-update-django-settings)
    - [Add URL Patterns](#63-add-url-patterns)
-   - [Test the JWT Endpoints](#64-test-the-jwt-endpoints)
+   - [Testing the API Endpoints](#64-testing-the-api-endpoints)
 
 Let's get started!
 
@@ -423,6 +423,29 @@ SIMPLE_JWT = {
 
 ### 6.3 Add URL Patterns
 
+First, create `backend/backend/views.py`:
+```python
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def status_view(request):
+    return Response({"status": "ok"})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me_view(request):
+    user = request.user
+    return Response({
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+    })
+```
+
 Update `backend/backend/urls.py`:
 ```python
 from django.contrib import admin
@@ -431,44 +454,91 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from .views import status_view, me_view
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/status/', status_view, name='api-status'),
+    path('api/me/', me_view, name='api-me'),
 ]
 ```
 
-### 6.4 Test the JWT Endpoints
+### 6.4 Testing the API Endpoints
+
+> **Note:** The examples below use `jq` for JSON parsing. If you don't have it installed, you can install it with:
+> ```bash
+> # On Ubuntu/Debian
+> sudo apt-get install jq
+> 
+> # On macOS with Homebrew
+> brew install jq
+> ```
 
 1. Rebuild the containers to include the new dependencies:
    ```bash
    docker-compose down && docker-compose up --build
    ```
 
-2. Get a token pair by sending a POST request to `/api/token/`:
+2. Test the status endpoint (no authentication required):
    ```bash
+   curl http://localhost/api/status/
+   ```
+
+   Expected response:
+   ```json
+   {"status": "ok"}
+   ```
+
+3. Try to access the me endpoint without authentication (should fail):
+   ```bash
+   curl http://localhost/api/me/
+   ```
+
+4. Get authentication tokens (replace with your credentials):
+   ```bash
+   # First, see the full response
    curl -X POST http://localhost/api/token/ \
        -H "Content-Type: application/json" \
        -d '{"username": "your_username", "password": "your_password"}'
+   
+   # Then, extract tokens into variables (requires jq)
+   ACCESS_TOKEN=$(curl -s -X POST http://localhost/api/token/ \
+       -H "Content-Type: application/json" \
+       -d '{"username": "your_username", "password": "your_password"}' \
+       | jq -r .access)
+   
+   REFRESH_TOKEN=$(curl -s -X POST http://localhost/api/token/ \
+       -H "Content-Type: application/json" \
+       -d '{"username": "your_username", "password": "your_password"}' \
+       | jq -r .refresh)
    ```
 
-3. You should receive a response like:
+5. Test the me endpoint with authentication:
+   ```bash
+   curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost/api/me/
+   ```
+
+   Expected response:
    ```json
    {
-       "access": "your.access.token",
-       "refresh": "your.refresh.token"
+       "username": "your_username",
+       "first_name": "Your",
+       "last_name": "Name",
+       "email": "your.email@example.com"
    }
    ```
 
-4. To get a new access token using the refresh token:
+6. Refresh the access token using the refresh token:
    ```bash
-   curl -X POST http://localhost/api/token/refresh/ \
+   # Get a new access token
+   NEW_ACCESS_TOKEN=$(curl -s -X POST http://localhost/api/token/refresh/ \
        -H "Content-Type: application/json" \
-       -d '{"refresh": "your.refresh.token"}'
+       -d "{\"refresh\": \"$REFRESH_TOKEN\"}" \
+       | jq -r .access)
+   
+   # Test the new access token
+   curl -H "Authorization: Bearer $NEW_ACCESS_TOKEN" http://localhost/api/me/
    ```
 
-The access token can now be used in subsequent requests by including it in the Authorization header:
-```bash
-curl -H "Authorization: Bearer your.access.token" http://localhost/api/your-protected-endpoint/
-```
