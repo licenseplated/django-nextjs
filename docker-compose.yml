@@ -1,6 +1,7 @@
 services:
   backend:
     build: ./backend
+    command: python manage.py runserver 0.0.0.0:8000  # Override Dockerfile CMD for development
     ports:
       - "8000:8000"
     volumes:
@@ -9,6 +10,25 @@ services:
       - ./backend:/app
       # Exclude the virtual environment directory
       - /app/venv
+    environment:
+      - DEBUG=1  # Enable Django debug mode
+      - PYTHONDONTWRITEBYTECODE=1  # Don't write .pyc files
+      - PYTHONUNBUFFERED=1  # Don't buffer Python output
+
+  frontend-dev:
+    image: node:18-alpine
+    command: sh -c "npm install && npm run dev"
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - NEXT_WEBPACK_USEPOLLING=1
+      - WATCHPACK_POLLING=true
+      - NODE_ENV=development
+    depends_on:
+      - backend
 
   frontend:
     build: ./frontend
@@ -16,6 +36,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+      - frontend-dev
     volumes:
       # Development volume for live code updates
       - ./frontend:/app

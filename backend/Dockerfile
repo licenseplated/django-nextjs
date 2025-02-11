@@ -5,6 +5,9 @@ COPY . /app/
 
 RUN pip install -e .
 
-EXPOSE 8000
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "backend.wsgi:application"]
+# Collect static files
+RUN python manage.py collectstatic --noinput
 
+EXPOSE 8000
+# Use Django development server for hot reloading
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

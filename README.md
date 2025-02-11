@@ -165,7 +165,8 @@ RUN pip install -e .
 RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "backend.wsgi:application"]
+# Use Django development server for hot reloading
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 ```
 
 ### 4.2 Frontend Setup
@@ -231,6 +232,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Proxy /static requests to Django backend
     location /static/ {
         proxy_pass http://backend:8000/static/;
         proxy_set_header Host $host;
@@ -239,21 +241,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # DEV MODE: Proxy everything else to the Next.js development server
     location / {
-        root /usr/share/nginx/html;
-        try_files $uri $uri.html $uri/index.html /app/index.html /index.html;
-    }
-
-    location /_next/static {
-        alias /usr/share/nginx/html/_next/static;
-        expires 365d;
-        access_log off;
-    }
-
-    location /public {
-        alias /usr/share/nginx/html/public;
-        expires 365d;
-        access_log off;
+        proxy_pass http://frontend-dev:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
     }
 }
 ```
@@ -265,6 +260,7 @@ Create a `docker-compose.yml` file in the root directory:
 services:
   backend:
     build: ./backend
+    command: python manage.py runserver 0.0.0.0:8000  # Override Dockerfile CMD for development
     ports:
       - "8000:8000"
     volumes:
@@ -273,6 +269,25 @@ services:
       - ./backend:/app
       # Exclude the virtual environment directory
       - /app/venv
+    environment:
+      - DEBUG=1  # Enable Django debug mode
+      - PYTHONDONTWRITEBYTECODE=1  # Don't write .pyc files
+      - PYTHONUNBUFFERED=1  # Don't buffer Python output
+
+  frontend-dev:
+    image: node:18-alpine
+    command: sh -c "npm install && npm run dev"
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - NEXT_WEBPACK_USEPOLLING=1
+      - WATCHPACK_POLLING=true
+      - NODE_ENV=development
+    depends_on:
+      - backend
 
   frontend:
     build: ./frontend
@@ -280,6 +295,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+      - frontend-dev
     volumes:
       # Development volume for live code updates
       - ./frontend:/app
