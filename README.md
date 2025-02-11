@@ -26,6 +26,11 @@ Welcome to the Django + Next.js demo project! This project demonstrates how to b
    - [Create Navigation Components](#71-create-navigation-components)
    - [Add Status Indicator](#72-add-status-indicator)
    - [Update Landing Page](#73-update-landing-page)
+8. [Frontend: Add Authentication](#step-8-frontend-add-authentication)
+   - [Create Auth Context](#81-create-auth-context)
+   - [Create Login Page](#82-create-login-page)
+   - [Update Navigation](#83-update-navigation)
+   - [Add Protected Content](#84-add-protected-content)
 
 Let's get started!
 
@@ -669,5 +674,289 @@ These changes will:
 After making these changes, rebuild your frontend container:
 ```bash
 docker-compose up --build frontend
+```
+
+## Step 8: Frontend: Add Authentication
+
+### 8.1 Create Auth Context
+
+First, create new context and login page directory:
+
+```bash
+mkdir -p frontend/src/context frontend/src/app/login
+```
+
+Create `frontend/src/context/AuthContext.tsx`:
+```typescript
+"use client"
+
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
+
+interface User {
+  username: string
+  email: string
+  first_name: string
+  last_name: string
+}
+
+interface AuthContextType {
+  user: User | null
+  login: (username: string, password: string) => Promise<void>
+  logout: () => void
+  error: string | null
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+
+  useEffect(() => {
+    // Check if we have tokens and fetch user data if we do
+    const checkAuth = async () => {
+      const token = localStorage.getItem('accessToken')
+      if (token) {
+        try {
+          const response = await fetch('/api/me/', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          if (response.ok) {
+            const userData = await response.json()
+            setUser(userData)
+          } else {
+            localStorage.removeItem('accessToken')
+            localStorage.removeItem('refreshToken')
+          }
+        } catch (err) {
+          console.error('Failed to fetch user data:', err)
+        }
+      }
+    }
+    
+    checkAuth()
+  }, [])
+
+  const login = async (username: string, password: string) => {
+    try {
+      const response = await fetch('/api/token/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        localStorage.setItem('accessToken', data.access)
+        localStorage.setItem('refreshToken', data.refresh)
+        
+        // Fetch user data
+        const userResponse = await fetch('/api/me/', {
+          headers: {
+            'Authorization': `Bearer ${data.access}`
+          }
+        })
+        
+        if (userResponse.ok) {
+          const userData = await userResponse.json()
+          setUser(userData)
+          setError(null)
+          router.push('/')
+        }
+      } else {
+        setError('Invalid credentials')
+      }
+    } catch (err) {
+      setError('An error occurred during login')
+      console.error('Login error:', err)
+    }
+  }
+
+  const logout = () => {
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    setUser(null)
+    router.push('/')
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, error }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => {
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
+```
+
+### 8.2 Create Login Page
+
+Create `frontend/src/app/login/page.tsx`:
+```typescript
+"use client"
+
+import { useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
+
+export default function Login() {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const { login, error } = useAuth()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await login(username, password)
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="bg-white p-8 rounded-lg shadow-md w-96">
+        <h1 className="text-2xl font-bold mb-6 text-center">Login</h1>
+        
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+        
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+          
+          <div className="mb-6">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+          
+          <button
+            type="submit"
+            className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+          >
+            Log In
+          </button>
+        </form>
+      </div>
+    </main>
+  )
+}
+```
+
+### 8.3 Update Navigation
+
+Update `frontend/src/components/Navigation.tsx`:
+```typescript
+"use client"
+
+import { FC } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import StatusIndicator from './StatusIndicator'
+import { useAuth } from '@/context/AuthContext'
+
+const Navigation: FC = () => {
+  const { user, logout } = useAuth()
+  const router = useRouter()
+
+  return (
+    <nav className="flex items-center justify-between p-4 bg-white shadow-md">
+      <div className="flex items-center space-x-4">
+        <Link href="/" className="text-gray-800 hover:text-gray-600">
+          Home
+        </Link>
+      </div>
+      
+      <StatusIndicator />
+      
+      <div>
+        {user ? (
+          <div className="flex items-center space-x-4">
+            <span className="text-gray-600">Welcome, {user.username}</span>
+            <button
+              onClick={logout}
+              className="px-4 py-2 text-white bg-red-500 rounded hover:bg-red-600"
+            >
+              Logout
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => router.push('/login')}
+            className="px-4 py-2 text-white bg-blue-500 rounded hover:bg-blue-600"
+          >
+            Login
+          </button>
+        )}
+      </div>
+    </nav>
+  )
+}
+
+export default Navigation
+```
+
+### 8.4 Add Protected Content
+
+Update `frontend/src/app/layout.tsx` to wrap the app with AuthProvider:
+```typescript
+import { AuthProvider } from '@/context/AuthContext'
+import './globals.css'
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
+    </html>
+  )
+}
+```
+
+These changes will:
+- Add authentication state management using React Context
+- Create a login page with error handling
+- Update the navigation to show user info when logged in
+- Persist authentication state using localStorage
+- Handle token storage and user data fetching
+
+After making these changes, rebuild your frontend container:
+```bash
+docker-compose up -d --build frontend
 ```
 
