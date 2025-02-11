@@ -31,6 +31,11 @@ Welcome to the Django + Next.js demo project! This project demonstrates how to b
    - [Create Login Page](#82-create-login-page)
    - [Update Navigation](#83-update-navigation)
    - [Add Protected Content](#84-add-protected-content)
+9. [Backend: Notes Implementation](#step-9-backend-notes-implementation)
+   - [Create Notes App](#91-create-notes-app)
+   - [Add Note Model](#92-add-note-model)
+   - [Implement API Views](#93-implement-api-views)
+   - [Configure URLs](#94-configure-urls)
 
 Let's get started!
 
@@ -974,5 +979,210 @@ These changes will:
 After making these changes, rebuild your frontend container:
 ```bash
 docker-compose up -d --build frontend
+```
+
+## Step 9: Backend: Notes Implementation
+
+### 9.1 Create Notes App
+
+First, create a new Django app for notes:
+```bash
+cd backend
+python manage.py startapp notes
+```
+
+Add the app to `INSTALLED_APPS` in `backend/backend/settings.py`:
+```python
+INSTALLED_APPS = [
+    # ... existing apps ...
+    'notes',
+]
+```
+
+### 9.2 Add Note Model
+
+Create the Note model in `backend/notes/models.py`:
+```python
+from django.db import models
+from django.conf import settings
+from django.db.models import Q
+
+class Note(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    position = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['position']
+
+    def __str__(self):
+        return f"{self.title} ({self.user.username})"
+
+    @classmethod
+    def search(cls, user, query=None):
+        notes = cls.objects.filter(user=user, is_deleted=False)
+        if query:
+            notes = notes.filter(
+                Q(title__icontains=query) | Q(content__icontains=query)
+            )
+        return notes
+
+    def soft_delete(self):
+        self.is_deleted = True
+        self.save()
+```
+
+Create and apply migrations:
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+Create `backend/notes/admin.py`:
+```python
+from django.contrib import admin
+from .models import Note
+
+@admin.register(Note)
+class NoteAdmin(admin.ModelAdmin):
+    list_display = ('title', 'user', 'position', 'created_at', 'is_deleted')
+    list_filter = ('is_deleted', 'user')
+    search_fields = ('title', 'content')
+    ordering = ('user', 'position')
+    readonly_fields = ('created_at', 'updated_at')
+
+    def get_queryset(self, request):
+        # Show all notes in admin, including soft-deleted ones
+        return super().get_queryset(request)
+```
+
+### 9.3 Implement API Views
+
+Create `backend/notes/serializers.py`:
+```python
+from rest_framework import serializers
+from .models import Note
+
+class NoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Note
+        fields = ['id', 'title', 'content', 'position', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+```
+
+Create `backend/notes/views.py`:
+```python
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from .models import Note
+from .serializers import NoteSerializer
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def notes_list(request):
+    if request.method == 'GET':
+        query = request.query_params.get('search', '')
+        notes = Note.search(request.user, query)
+        serializer = NoteSerializer(notes, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        serializer = NoteSerializer(data=request.data)
+        if serializer.is_valid():
+            # Set the user and get the highest position
+            max_position = Note.objects.filter(
+                user=request.user, 
+                is_deleted=False
+            ).count()
+            
+            serializer.save(
+                user=request.user,
+                position=max_position
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def note_detail(request, pk):
+    note = get_object_or_404(Note, pk=pk, user=request.user, is_deleted=False)
+
+    if request.method == 'GET':
+        serializer = NoteSerializer(note)
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        serializer = NoteSerializer(note, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    elif request.method == 'DELETE':
+        note.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_positions(request):
+    positions = request.data
+    for item in positions:
+        Note.objects.filter(
+            id=item['id'],
+            user=request.user,
+            is_deleted=False
+        ).update(position=item['position'])
+    return Response(status=status.HTTP_200_OK)
+```
+
+### 9.4 Configure URLs
+
+Create `backend/notes/urls.py`:
+```python
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.notes_list, name='notes-list'),
+    path('<int:pk>/', views.note_detail, name='note-detail'),
+    path('positions/', views.update_positions, name='update-positions'),
+]
+```
+
+Update `backend/backend/urls.py` to include the notes URLs:
+```python
+from django.urls import path, include
+
+urlpatterns = [
+    # ... existing urls ...
+    path('api/notes/', include('notes.urls')),
+]
+```
+
+After making these changes, rebuild your backend container:
+```bash
+docker-compose up --build backend
+```
+
+You can now test the notes API endpoints:
+```bash
+# List notes (this will be empty initially)
+curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost/api/notes/
+
+# Create a note
+curl -X POST http://localhost/api/notes/ \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"New Note","content":"# Markdown content here"}'
+
+# Now try a search that will return the note we just created
+curl -H "Authorization: Bearer $ACCESS_TOKEN" "http://localhost/api/notes/?search=content"
 ```
 
