@@ -15,6 +15,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>
   logout: () => void
   error: string | null
+  isLoading: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error('Failed to fetch user data:', err)
         }
       }
+      setIsLoading(false)
     }
     
     checkAuth()
@@ -96,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, error }}>
+    <AuthContext.Provider value={{ user, login, logout, error, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

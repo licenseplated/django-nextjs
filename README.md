@@ -39,8 +39,7 @@ Welcome to the Django + Next.js demo project! This project demonstrates how to b
 10. [Frontend: Notes Application](#step-10-frontend-notes-application)
     - [Setup Notes Context](#101-setup-notes-context)
     - [Create and Manage Notes Page](#102-create-and-manage-notes-page)
-    - [Add Note Editing](#103-add-note-editing)
-    - [Redirect to Notes on Login](#104-redirect-to-notes-on-login)
+    - [Update Layout for Authentication](#103-update-layout-for-authentication)
 
 Let's get started!
 
@@ -731,6 +730,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>
   logout: () => void
   error: string | null
+  isLoading: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -738,10 +738,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
-    // Check if we have tokens and fetch user data if we do
     const checkAuth = async () => {
       const token = localStorage.getItem('accessToken')
       if (token) {
@@ -762,6 +762,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error('Failed to fetch user data:', err)
         }
       }
+      setIsLoading(false)
     }
     
     checkAuth()
@@ -812,7 +813,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, error }}>
+    <AuthContext.Provider value={{ user, login, logout, error, isLoading }}>
       {children}
     </AuthContext.Provider>
   )
@@ -1201,7 +1202,7 @@ Create `frontend/src/context/NotesContext.tsx`:
 ```typescript
 "use client"
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useAuth } from './AuthContext'
 
 interface Note {
@@ -1215,16 +1216,15 @@ export type { Note }
 
 interface NotesContextType {
   notes: Note[]
-  fetchNotes: () => void
-  addNote: (title: string, content: string) => Promise<void>
-  updateNote: (id: number, title: string, content: string) => Promise<void>
+  addNote: (title: string, content: string) => Promise<Note | null>
+  updateNote: (id: number, title: string, content: string) => Promise<Note | null>
   deleteNote: (id: number) => Promise<void>
   updatePositions: (updatedNotes: Note[]) => Promise<void>
 }
 
 const NotesContext = createContext<NotesContextType | undefined>(undefined)
 
-export function NotesProvider({ children }: { children: ReactNode }) {
+export function NotesProvider({ children }: { children: React.ReactNode }) {
   const [notes, setNotes] = useState<Note[]>([])
   const { user } = useAuth()
 
@@ -1366,20 +1366,22 @@ export default function NotesPage() {
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [editingNote, setEditingNote] = useState<Note | null>(null)
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
-    if (!user) {
+    if (!isLoading && !user) {
       router.push('/')
     }
-  }, [user, router])
+  }, [user, isLoading, router])
 
   const handleAddNote = async () => {
     if (newTitle && newContent) {
-      await addNote(newTitle, newContent)
-      setNewTitle('')
-      setNewContent('')
+      const newNote = await addNote(newTitle, newContent)
+      if (newNote) {
+        setNewTitle('')
+        setNewContent('')
+      }
     }
   }
 
@@ -1399,32 +1401,51 @@ export default function NotesPage() {
   }
 
   const NoteCard = ({ note, index }: { note: Note; index: number }) => {
-    const [, ref] = useDrag({
-      type: 'NOTE',
-      item: { index },
-    })
-    const [, drop] = useDrop({
-      accept: 'NOTE',
-      hover: (item: { index: number }) => {
-        if (item.index !== index) {
-          moveNote(item.index, index)
-          item.index = index
+    const [localEditingNote, setLocalEditingNote] = useState<Note | null>(null)
+    const [isEditing, setIsEditing] = useState(false)
+
+    useEffect(() => {
+      if (editingNote?.id === note.id) {
+        setLocalEditingNote({ ...note })
+        setIsEditing(true)
+      } else {
+        setLocalEditingNote(null)
+        setIsEditing(false)
+      }
+    }, [editingNote, note])
+
+    const handleLocalEditChange = (field: 'title' | 'content', value: string) => {
+      if (localEditingNote) {
+        setLocalEditingNote({ ...localEditingNote, [field]: value })
+      }
+    }
+
+    const handleEditNote = async () => {
+      if (localEditingNote) {
+        const updatedNote = await updateNote(
+          localEditingNote.id,
+          localEditingNote.title,
+          localEditingNote.content
+        )
+        if (updatedNote) {
+          setEditingNote(null)
         }
-      },
-    })
+      }
+    }
+
     return (
       <div ref={(node) => { ref(node); drop(node); }} className="p-4 mb-2 bg-white rounded shadow">
-        {editingNote?.id === note.id ? (
+        {isEditing ? (
           <div>
             <input
               type="text"
-              value={editingNote.title}
-              onChange={(e) => setEditingNote({ ...editingNote, title: e.target.value })}
+              value={localEditingNote?.title}
+              onChange={(e) => handleLocalEditChange('title', e.target.value)}
               className="w-full p-2 mb-2 border rounded"
             />
             <textarea
-              value={editingNote.content}
-              onChange={(e) => setEditingNote({ ...editingNote, content: e.target.value })}
+              value={localEditingNote?.content}
+              onChange={(e) => handleLocalEditChange('content', e.target.value)}
               className="w-full p-2 mb-2 border rounded"
             />
             <button
@@ -1458,7 +1479,7 @@ export default function NotesPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-4">
-      <h1 className="text-3xl font-bold mb-4">My Notes</h1>
+      <h1 className="text-3xl font-bold mb-4 text-gray-800">My Notes</h1>
       
       <div className="mb-6">
         <input
@@ -1466,13 +1487,13 @@ export default function NotesPage() {
           placeholder="Note Title"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
-          className="w-full p-2 mb-2 border rounded"
+          className="w-full p-2 mb-2 border rounded text-gray-800"
         />
         <textarea
           placeholder="Note Content"
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
-          className="w-full p-2 mb-2 border rounded"
+          className="w-full p-2 mb-2 border rounded text-gray-800"
         />
         <button
           onClick={handleAddNote}
@@ -1494,11 +1515,12 @@ export default function NotesPage() {
 
 ### 10.3 Update Layout for Authentication
 
-Ensure that the `NotesPage` component is wrapped with the `NotesProvider` in your app's layout or a higher-level component. Update `frontend/src/app/layout.tsx`:
+Update `frontend/src/app/layout.tsx` to include the navigation component and wrap the application with both providers:
 
 ```typescript
 import { AuthProvider } from '@/context/AuthContext'
 import { NotesProvider } from '@/context/NotesContext'
+import Navigation from '@/components/Navigation'
 import './globals.css'
 
 export default function RootLayout({
@@ -1511,6 +1533,7 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <NotesProvider>
+            <Navigation />
             {children}
           </NotesProvider>
         </AuthProvider>

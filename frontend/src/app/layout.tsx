@@ -1,6 +1,7 @@
-import { AuthProvider } from '@/context/AuthContext'
-import { NotesProvider } from '@/context/NotesContext'
-import './globals.css'
+import { AuthProvider } from '@/context/AuthContext';
+import { NotesProvider } from '@/context/NotesContext';
+import Navigation from '@/components/Navigation';
+import './globals.css';
 
 export default function RootLayout({
   children,
@@ -12,6 +13,7 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <NotesProvider>
+            <Navigation />
             {children}
           </NotesProvider>
         </AuthProvider>
