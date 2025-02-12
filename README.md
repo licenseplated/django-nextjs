@@ -1,4 +1,5 @@
 # Django + Next.js
+**Note:** This repository is a companion for the blog post "[Building a Full-Stack App with Django and Next.js](https://blahblahblah.ninja/posts/building-a-full-stack-app/)".
 
 Welcome to the Django + Next.js demo project! This project demonstrates how to build a full-stack web application using a Django backend and a Next.js frontend. Both components will be containerized with Docker to ensure a consistent development environment and seamless deployment. Each step of the process will be documented in this README, complete with explanations and instructions.
 
