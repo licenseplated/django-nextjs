@@ -36,6 +36,11 @@ Welcome to the Django + Next.js demo project! This project demonstrates how to b
    - [Add Note Model](#92-add-note-model)
    - [Implement API Views](#93-implement-api-views)
    - [Configure URLs](#94-configure-urls)
+10. [Frontend: Notes Application](#step-10-frontend-notes-application)
+    - [Setup Notes Context](#101-setup-notes-context)
+    - [Create and Manage Notes Page](#102-create-and-manage-notes-page)
+    - [Add Note Editing](#103-add-note-editing)
+    - [Redirect to Notes on Login](#104-redirect-to-notes-on-login)
 
 Let's get started!
 
@@ -1186,3 +1191,349 @@ curl -X POST http://localhost/api/notes/ \
 curl -H "Authorization: Bearer $ACCESS_TOKEN" "http://localhost/api/notes/?search=content"
 ```
 
+## Step 10: Frontend: Notes Application
+
+### 10.1 Setup Notes Context
+
+First, create a context to manage notes state and interactions:
+
+Create `frontend/src/context/NotesContext.tsx`:
+```typescript
+"use client"
+
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { useAuth } from './AuthContext'
+
+interface Note {
+  id: number
+  title: string
+  content: string
+  position: number
+}
+
+export type { Note }
+
+interface NotesContextType {
+  notes: Note[]
+  fetchNotes: () => void
+  addNote: (title: string, content: string) => Promise<void>
+  updateNote: (id: number, title: string, content: string) => Promise<void>
+  deleteNote: (id: number) => Promise<void>
+  updatePositions: (updatedNotes: Note[]) => Promise<void>
+}
+
+const NotesContext = createContext<NotesContextType | undefined>(undefined)
+
+export function NotesProvider({ children }: { children: ReactNode }) {
+  const [notes, setNotes] = useState<Note[]>([])
+  const { user } = useAuth()
+
+  useEffect(() => {
+    if (user) {
+      fetchNotes()
+    }
+  }, [user])
+
+  const fetchNotes = async () => {
+    try {
+      const response = await fetch('/api/notes/', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setNotes(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch notes:', err)
+    }
+  }
+
+  const addNote = async (title: string, content: string) => {
+    try {
+      const response = await fetch('/api/notes/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify({ title, content })
+      })
+      if (response.ok) {
+        fetchNotes()
+      }
+    } catch (err) {
+      console.error('Failed to add note:', err)
+    }
+  }
+
+  const updateNote = async (id: number, title: string, content: string) => {
+    try {
+      const response = await fetch(`/api/notes/${id}/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify({ title, content })
+      })
+      if (response.ok) {
+        fetchNotes()
+      }
+    } catch (err) {
+      console.error('Failed to update note:', err)
+    }
+  }
+
+  const deleteNote = async (id: number) => {
+    try {
+      const response = await fetch(`/api/notes/${id}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      })
+      if (response.ok) {
+        fetchNotes()
+      }
+    } catch (err) {
+      console.error('Failed to delete note:', err)
+    }
+  }
+
+  const updatePositions = async (updatedNotes: Note[]) => {
+    try {
+      const response = await fetch('/api/notes/positions/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify(updatedNotes.map(note => ({ id: note.id, position: note.position })))
+      })
+      if (response.ok) {
+        fetchNotes()
+      }
+    } catch (err) {
+      console.error('Failed to update positions:', err)
+    }
+  }
+
+  return (
+    <NotesContext.Provider value={{ notes, fetchNotes, addNote, updateNote, deleteNote, updatePositions }}>
+      {children}
+    </NotesContext.Provider>
+  )
+}
+
+export const useNotes = () => {
+  const context = useContext(NotesContext)
+  if (context === undefined) {
+    throw new Error('useNotes must be used within a NotesProvider')
+  }
+  return context
+}
+```
+
+### 10.2 Create and Manage Notes Page
+
+First, install the necessary libraries for drag-and-drop functionality:
+```bash
+cd frontend
+npm install react-dnd react-dnd-html5-backend
+```
+
+Create a new page for displaying, managing, and implementing drag-and-drop for notes:
+```bash
+mkdir -p frontend/src/app/notes
+```
+
+Create `frontend/src/app/notes/page.tsx`:
+```typescript
+"use client"
+
+import { useNotes } from '@/context/NotesContext'
+import { useState, useEffect } from 'react'
+import { DndProvider, useDrag, useDrop } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
+import type { Note } from '@/context/NotesContext'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/context/AuthContext'
+
+export default function NotesPage() {
+  const { notes, addNote, updateNote, deleteNote, updatePositions } = useNotes()
+  const [newTitle, setNewTitle] = useState('')
+  const [newContent, setNewContent] = useState('')
+  const [editingNote, setEditingNote] = useState<Note | null>(null)
+  const { user } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/')
+    }
+  }, [user, router])
+
+  const handleAddNote = async () => {
+    if (newTitle && newContent) {
+      await addNote(newTitle, newContent)
+      setNewTitle('')
+      setNewContent('')
+    }
+  }
+
+  const handleEditNote = async () => {
+    if (editingNote) {
+      await updateNote(editingNote.id, editingNote.title, editingNote.content)
+      setEditingNote(null)
+    }
+  }
+
+  const moveNote = (dragIndex: number, hoverIndex: number) => {
+    const draggedNote = notes[dragIndex]
+    const updatedNotes = [...notes]
+    updatedNotes.splice(dragIndex, 1)
+    updatedNotes.splice(hoverIndex, 0, draggedNote)
+    updatePositions(updatedNotes.map((note, index) => ({ ...note, position: index })))
+  }
+
+  const NoteCard = ({ note, index }: { note: Note; index: number }) => {
+    const [, ref] = useDrag({
+      type: 'NOTE',
+      item: { index },
+    })
+    const [, drop] = useDrop({
+      accept: 'NOTE',
+      hover: (item: { index: number }) => {
+        if (item.index !== index) {
+          moveNote(item.index, index)
+          item.index = index
+        }
+      },
+    })
+    return (
+      <div ref={(node) => { ref(node); drop(node); }} className="p-4 mb-2 bg-white rounded shadow">
+        {editingNote?.id === note.id ? (
+          <div>
+            <input
+              type="text"
+              value={editingNote.title}
+              onChange={(e) => setEditingNote({ ...editingNote, title: e.target.value })}
+              className="w-full p-2 mb-2 border rounded"
+            />
+            <textarea
+              value={editingNote.content}
+              onChange={(e) => setEditingNote({ ...editingNote, content: e.target.value })}
+              className="w-full p-2 mb-2 border rounded"
+            />
+            <button
+              onClick={handleEditNote}
+              className="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600"
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <div>
+            <h2 className="text-xl font-bold">{note.title}</h2>
+            <p>{note.content}</p>
+            <button
+              onClick={() => setEditingNote(note)}
+              className="text-blue-500 hover:text-blue-700"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => deleteNote(note.id)}
+              className="text-red-500 hover:text-red-700 ml-2"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-4">
+      <h1 className="text-3xl font-bold mb-4">My Notes</h1>
+      
+      <div className="mb-6">
+        <input
+          type="text"
+          placeholder="Note Title"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          className="w-full p-2 mb-2 border rounded"
+        />
+        <textarea
+          placeholder="Note Content"
+          value={newContent}
+          onChange={(e) => setNewContent(e.target.value)}
+          className="w-full p-2 mb-2 border rounded"
+        />
+        <button
+          onClick={handleAddNote}
+          className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+        >
+          Add Note
+        </button>
+      </div>
+
+      <DndProvider backend={HTML5Backend}>
+        {notes.map((note, index) => (
+          <NoteCard key={note.id} note={note} index={index} />
+        ))}
+      </DndProvider>
+    </main>
+  )
+}
+```
+
+### 10.3 Update Layout for Authentication
+
+Ensure that the `NotesPage` component is wrapped with the `NotesProvider` in your app's layout or a higher-level component. Update `frontend/src/app/layout.tsx`:
+
+```typescript
+import { AuthProvider } from '@/context/AuthContext'
+import { NotesProvider } from '@/context/NotesContext'
+import './globals.css'
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <AuthProvider>
+          <NotesProvider>
+            {children}
+          </NotesProvider>
+        </AuthProvider>
+      </body>
+    </html>
+  )
+}
+```
+
+### Summary and Build
+
+These changes will:
+- Set up a context for managing notes state and interactions
+- Create a notes page with add, edit, delete, and drag-and-drop functionality
+- Use `react-dnd` for drag-and-drop interactions
+- Allow inline editing of notes
+- Redirect users to the notes page when logged in
+
+After making these changes, rebuild your frontend container:
+```bash
+docker-compose up -d --build frontend
+```
+
+Visit [http://localhost](http://localhost) to see the new notes page.
+
+Enjoy exploring and testing your Django + Next.js application!

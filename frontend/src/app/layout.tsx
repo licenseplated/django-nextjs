@@ -1,4 +1,5 @@
 import { AuthProvider } from '@/context/AuthContext'
+import { NotesProvider } from '@/context/NotesContext'
 import './globals.css'
 
 export default function RootLayout({
@@ -10,7 +11,9 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <AuthProvider>
-          {children}
+          <NotesProvider>
+            {children}
+          </NotesProvider>
         </AuthProvider>
       </body>
     </html>
